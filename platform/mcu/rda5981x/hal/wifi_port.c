@@ -7,10 +7,6 @@
 #include "hal/wifi.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/inet.h"
-#ifndef DELETE_HFILOP_CODE
-#include "hfilop.h"
-#include "ota_hal_plat.h"
-#endif
 
 typedef enum {
     SCAN_NORMAL,
@@ -185,26 +181,8 @@ static int wifi_init(hal_wifi_module_t *m)
     if (inited) return 0;
     inited = 1;
 
-#ifndef DELETE_HFILOP_CODE
-    extern int hfilop_config_init(void);
-    hfilop_config_init();
-#endif
     rda59xx_wifi_init();
     rda59xx_wifi_set_event_cb(wifi_event_cb);
-
-#ifndef DELETE_HFILOP_CODE
-    extern ota_hal_module_t ota_hal_module;
-    ota_hal_register_module(&ota_hal_module);
-
-    hfilop_ota_auto_upgrade(NULL, NULL);
-
-    extern int hfilop_mac_key_is_valid(void);
-    if(!hfilop_mac_key_is_valid())
-    {
-        hfilop_uart_task_start(NULL, NULL);
-        while(1) aos_msleep(1000);
-    }
-#endif
 
     return 0;
 };
@@ -234,14 +212,12 @@ static int wifi_start(hal_wifi_module_t *m, hal_wifi_init_type_t *init_para)
         ip4addr_aton((const char *)(init_para->gateway_ip_addr), (ip4_addr_t*)&(sta_info.gateway));
     }
 
-#ifndef DELETE_HFILOP_CODE
     if(init_para->reserved[0] == 1){
         extern r_s32 rda59xx_sta_connect_ex(rda59xx_sta_info *sta_info);
          rda59xx_sta_connect_ex(&sta_info);
+    } else {
+        rda59xx_sta_connect(&sta_info);
     }
-    else
-#endif
-    rda59xx_sta_connect(&sta_info);
     return 0;
 }
 
@@ -293,66 +269,6 @@ static int get_link_stat(hal_wifi_module_t *m,
     return 0;
 }
 
-#ifndef DELETE_HFILOP_CODE
-typedef int (*wifi_scan_callback_t)(ap_list_adv_t *);
-static int transform_rssi(int rssi_dbm)
-{
-	int ret;
-	ret = (rssi_dbm+95)*2;
-
-	if (ret < 70)
-		ret = ret -(15 - ret/5);
-
-	if(ret < 0)
-		ret = 0;
-	else if(ret >100)
-		ret = 100;
-
-	return ret;
-}
-
-int hfilop_wifi_scan(wifi_scan_callback_t cb)
-{
-	rda59xx_scan_info scan_info;
-	memset(&scan_info, 0, sizeof(rda59xx_scan_info));
-	scan_info.scan_mode = 1;
-	scan_info.scan_time = 3;
-	rda59xx_scan(&scan_info);
-
-	int ap_num = 0, i;
-	if(cb != NULL)
-	{
-		ap_list_adv_t ap_info;
-		rda59xx_scan_result *ap_records;
-		ap_num = rda59xx_get_scan_num();
-		if (ap_num > 50)
-			ap_num = 50;
-
-		ap_records = aos_malloc(ap_num * sizeof(*ap_records));
-		if (!ap_records)
-			return 0;
-
-		rda59xx_get_scan_result(ap_records, ap_num);
-
-		for (i = 0; i < ap_num; i++)
-		{
-			rda59xx_scan_result *r = ap_records + i;
-			memset(&ap_info, 0, sizeof(ap_info));
-			memcpy(ap_info.bssid, r->BSSID, sizeof(ap_info.bssid));
-			memcpy(ap_info.ssid, r->SSID, r->SSID_len);
-			ap_info.ap_power = transform_rssi(r->RSSI);
-			ap_info.channel = r->channel;
-			ap_info.security = r->secure_type;
-
-			cb(&ap_info);
-		}
-		if (ap_records)
-			aos_free(ap_records);
-	}
-	return ap_num;
-}
-#endif
-
 static void wifi_scan(hal_wifi_module_t *m)
 {
     rda59xx_scan_info scan_info;
@@ -365,6 +281,8 @@ static void start_scan_adv(hal_wifi_module_t *m)
 {
     rda59xx_scan_info scan_info;
     memset(&scan_info, 0, sizeof(rda59xx_scan_info));
+	scan_info.scan_mode = 1;
+	scan_info.scan_time = 3;
     rda59xx_scan(&scan_info);
     scan_done(m, SCAN_ADV);
 }

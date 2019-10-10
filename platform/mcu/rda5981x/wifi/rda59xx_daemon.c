@@ -88,32 +88,40 @@ static r_s32 rda59xx_send_daemon_msg(rda_msg *msg, r_u32 wait_time)
     return res;
 }
 
+static void rda_get_macaddr_from_flash(unsigned char *macaddr)
+{
+    int ret = -1;
+    unsigned char rda_mac_addr[6] = "\0";
+    ret = rda5981_read_sys_data(rda_mac_addr, 6, RDA5981_SYS_DATA_FLAG_MAC);
+    //if ((ret!=0) || (is_zero_ether_addr(rda_mac_addr))) {
+    if (ret!=0) { //Fixme: compile error: is_zero_ether_addr is not defined
+#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
+        unsigned int out_len;
+        ret = mbedtls_hardware_poll(NULL, rda_mac_addr, 6, &out_len);
+        if (6 != out_len) {
+            LWIP_DEBUGF(NETIF_DEBUG, ("out_len err:%d\n", out_len));
+        }
+#else
+        ret = rda_trng_generator(rda_mac_addr, 6);
+#endif
+        rda_mac_addr[0] &= 0xfe;    /* clear multicast bit */
+        rda_mac_addr[0] |= 0x02;    /* set local assignment bit (IEEE802) */
+        rda59xx_set_macaddr(rda_mac_addr, 0);
+    }
+    r_memcpy(macaddr, rda_mac_addr, 6);
+}
+
 r_void rda59xx_get_macaddr(r_u8 *macaddr, r_u32 mode)
 {
-#ifdef DELETE_HFILOP_CODE
-    macaddr[0] = 0xD6;
-    macaddr[1] = 0x71;
-    macaddr[2] = 0x36;
-    macaddr[3] = 0x60;
-    macaddr[4] = 0xD8;
-    macaddr[5] = 0xF0;
-
+    rda_get_macaddr_from_flash(macaddr);
     if(mode == 1){
         if(macaddr[0] & 0x04)
            macaddr[0] &= 0xFB;
         else
            macaddr[0] |= 0x04;
     }
-#else
-    extern unsigned char *hfilop_layer_get_mac(void);
-    memcpy((char *)macaddr, hfilop_layer_get_mac(), 6);
-    if(mode == 1)
-        macaddr[5] ^= 0x01;
-#endif
     return;
-    }
-
-
+}
 
 r_void rda59xx_set_macaddr(r_u8 *macaddr, r_u32 mode)
 {
@@ -325,14 +333,11 @@ reconn:
         if(res == R_NOERR){
             WIFISTACK_PRINT("Connect successful!\r\n");
             rda59xx_set_data_rate(0, 0);
-#ifndef DELETE_HFILOP_CODE
-             r_memcpy(&r_bss_info, &ap, 6+33+1+1+1+1);//bssid, ssid, ssid_len, channel, secure type, RSSI
-             r_bss_info.channel = ap.channel;
-             r_bss_info.secure = ap.secure_type;
-             r_bss_info.rssi = ap.RSSI;
-#else
-            r_memcpy(&r_bss_info, &ap, 6+33+1+1+1);//bssid, ssid, channel, secure type, RSSI
-#endif
+            r_memcpy(&r_bss_info, &ap, (ETH_ALEN + MAX_SSID_LEN));//bssid, ssid
+            r_bss_info.ssid_len = ap.SSID_len;
+            r_bss_info.channel = ap.channel;
+            r_bss_info.secure = ap.secure_type;
+            r_bss_info.rssi = ap.RSSI;
             r_bss_info.ipaddr = lwip_sta_netif.ip_addr.addr;
             r_bss_info.mask = lwip_sta_netif.netmask.addr;
             r_bss_info.gateway = lwip_sta_netif.gw.addr;
@@ -369,16 +374,16 @@ r_s32 rda59xx_sta_connect(rda59xx_sta_info *sta_info)
     return 0;
 }
 
-#ifndef DELETE_HFILOP_CODE
 r_s32 rda59xx_sta_connect_ex(rda59xx_sta_info *sta_info)
 {
     rda_msg msg;
+
+    WIFISTACK_PRINT("rda59xx_sta_connect_ex!\r\n");
     msg.type = DAEMON_STA_CONNECT;
     msg.arg1 = (r_u32)sta_info;
     rda59xx_send_daemon_msg(&msg, 1000);
     return 0;
 }
-#endif
 
 r_s32 rda59xx_sta_get_ip(r_u32* ip_addr)
 {
