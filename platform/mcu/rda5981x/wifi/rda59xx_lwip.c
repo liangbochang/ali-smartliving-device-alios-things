@@ -321,15 +321,9 @@ err_t rda59xx_sta_netif_init(struct netif *netif)
     netif->name[1] = 't';
 #if LWIP_NETIF_HOSTNAME
     /* Initialize interface hostname */
-    if(netif->hostname == NULL)
-#ifdef DELETE_HFILOP_CODE
+    if(netif->hostname == NULL) {
         netif->hostname = "rda59xx_sta";
-#else
-    {
-        extern char *hfilop_layer_get_hostname(void);
-	 netif->hostname = hfilop_layer_get_hostname();
     }
-#endif
 #endif /* LWIP_NETIF_HOSTNAME */
     rda59xx_get_macaddr((u8_t *)(netif->hwaddr), 0);
 
